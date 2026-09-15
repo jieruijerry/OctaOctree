@@ -14,3 +14,4 @@ opencv-python
 ffmpeg-python
 cuda-python
 imgui[full]
+ocnn
