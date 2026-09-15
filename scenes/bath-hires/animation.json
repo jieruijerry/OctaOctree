@@ -1,0 +1,14 @@
+[
+    {
+        "type": "translate",
+        "shape_names": ["Light_0001"],
+        "start": [0, 0, 0],
+        "end": [0, 1.5, 0]
+    },
+    {
+        "type": "common",
+        "param_name": "BulbGlass_0001.emitter.radiance.value",
+        "start": [3, 2.5, 2],
+        "end": [30, 25, 20]
+    }
+]

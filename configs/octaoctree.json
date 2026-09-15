@@ -1,0 +1,47 @@
+{
+    "train": {
+        "epochs": 20000,
+        "save_every": 500,
+        "learning_rate": 1e-3,
+        "reg_lambda": 0
+    },
+    "render": {
+    },
+    "model": {
+        "name": "OctreeNeLP",
+        "disparity": {
+            "otype": "Composite",
+            "nested": [{
+                "otype": "HashGrid",
+                "n_dims_to_encode": 3,
+                "n_levels": 6,
+                "n_features_per_level": 2,
+                "log2_hashmap_size": 19,
+                "base_resolution": 32,
+                "per_level_scale": 2.0,
+                "interpolation": "Linear"
+            }]
+        },
+        "encoding": {
+            "name": "OctaOctree",
+            "n_dims_to_encode": 5,
+            "octree_depths": [2, 3, 4, 5, 6, 7, 8, 9],
+            "octa_resolutions": [8, 7, 6, 5, 4, 3, 2, 1],
+            "log2_hashmap_size": 25,
+            "n_features_per_sa": 4,
+            "interpolation": "Linear",
+            "level_reduce": "Concat"
+        },
+        "mlp": {
+            "n_neurons": 128,
+            "n_hidden_layers": 4,
+            "activation": "ReLU",
+            "output_activation": "SquarePlus"
+        }
+    },
+    "sample": {
+        "n_points": 65536,
+        "n_dirs_per_point": 32,
+        "from_poses": true
+    }
+}

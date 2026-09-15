@@ -1,0 +1,30 @@
+{
+    "train": {
+        "epochs": 20000,
+        "save_every": 500,
+        "learning_rate": 1e-3
+    },
+    "render": {
+    },
+    "model": {
+        "name": "NR-Octree",
+        "ray": {
+            "name": "Octree",
+            "n_dims_to_encode": 3,
+            "n_depths": 9,
+            "full_depths": 2,
+            "n_features_per_level": 4,
+            "interpolation": "Linear",
+            "level_reduce": "Concat",
+            "n_hidden_dims": 256,
+            "n_hidden_layers": 4,
+            "output_activation": "None",
+            "use_tcnn": false
+        }
+    },
+    "sample": {
+        "n_points": 65536,
+        "n_dirs_per_point": 32,
+        "from_poses": true
+    }
+}

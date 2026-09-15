@@ -1,0 +1,47 @@
+{
+    "train": {
+        "epochs": 20000,
+        "save_every": 500,
+        "learning_rate": 1e-3,
+        "reg_lambda": 1e-3
+    },
+    "render": {
+    },
+    "model": {
+        "name": "NeLP",
+        "diff": {
+            "name": "HashGrid",
+            "n_dims_to_encode": 3,
+            "n_levels": 6,
+            "n_features_per_level": 4,
+            "log2_hashmap_size": 19,
+            "base_resolution": 32,
+            "per_level_scale": 2.0,
+            "interpolation": "Linear",
+            "level_reduce": "Concat",
+            "use_tcnn": false
+        },
+        "spec": {
+            "name": "OctaGrid",
+            "n_dims_to_encode": 2,
+            "n_levels": 8,
+            "n_features_per_level": 4,
+            "log2_hashmap_size": 19,
+            "spatial_resolution": 16,
+            "per_level_scale": 2.0,
+            "interpolation": "Barycentric",
+            "level_reduce": "Concat"
+        },
+        "mlp": {
+            "n_neurons": 256,
+            "n_hidden_layers": 4,
+            "activation": "ReLU",
+            "output_activation": "SquarePlus"
+        }
+    },
+    "sample": {
+        "n_points": 65536,
+        "n_dirs_per_point": 32,
+        "from_poses": true
+    }
+}

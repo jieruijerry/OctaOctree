@@ -1,0 +1,40 @@
+[
+    {
+        "type": "rotate",
+        "shape_names": ["DoorHandle", "Door"],
+        "axis": [0, -1, 0],
+        "translation": [-2.8, 0, -4.67],
+        "start": -15,
+        "end": 65
+    },
+    {
+        "type": "common",
+        "param_name": "Light.emitter.radiance.value",
+        "start": [1000, 500, 200],
+        "end": [200, 500, 1000]
+    },
+    {
+        "type": "common",
+        "param_name": "FloorBSDF.alpha.value",
+        "start": 0.02,
+        "end": 0.2
+    },
+    {
+        "type": "translate",
+        "shape_names": ["Pot2_0001"],
+        "start": [0, 0, 0],
+        "end": [0.9, 0, 0]
+    },
+    {
+        "type": "translate",
+        "shape_names": ["Pot3_0001"],
+        "start": [0, 0, 0],
+        "end": [0.9, 0, 0]
+    },
+    {
+        "type": "translate",
+        "shape_names": ["Material_0001"],
+        "start": [0, 0, 0],
+        "end": [0.9, 0, 0]
+    }
+]

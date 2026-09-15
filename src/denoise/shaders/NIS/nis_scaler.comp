@@ -1,0 +1,532 @@
+#version 450
+#if defined(GL_AMD_gpu_shader_half_float)
+#extension GL_AMD_gpu_shader_half_float : require
+#elif defined(GL_NV_gpu_shader5)
+#extension GL_NV_gpu_shader5 : require
+#else
+#error No extension available for FP16.
+#endif
+layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
+
+layout(binding = 0, std140) uniform const_buffer
+{
+    float kDetectRatio;
+    float kDetectThres;
+    float kMinContrastRatio;
+    float kRatioNorm;
+    float kContrastBoost;
+    float kEps;
+    float kSharpStartY;
+    float kSharpScaleY;
+    float kSharpStrengthMin;
+    float kSharpStrengthScale;
+    float kSharpLimitMin;
+    float kSharpLimitScale;
+    float kScaleX;
+    float kScaleY;
+    float kDstNormX;
+    float kDstNormY;
+    float kSrcNormX;
+    float kSrcNormY;
+    uint kInputViewportOriginX;
+    uint kInputViewportOriginY;
+    uint kInputViewportWidth;
+    uint kInputViewportHeight;
+    uint kOutputViewportOriginX;
+    uint kOutputViewportOriginY;
+    uint kOutputViewportWidth;
+    uint kOutputViewportHeight;
+    float reserved0;
+    float reserved1;
+} _320;
+
+layout(binding = 3) uniform writeonly image2D out_texture;
+uniform sampler2D SPIRV_Cross_Combinedin_texturesamplerLinearClamp;
+uniform sampler2D SPIRV_Cross_Combinedcoef_scalersamplerLinearClamp;
+uniform sampler2D SPIRV_Cross_Combinedcoef_usmsamplerLinearClamp;
+
+shared float16_t shCoefScaler[64][6];
+shared float16_t shCoefUSM[64][6];
+shared float shPixelsY[1140];
+shared f16vec4 shEdgeMap[884];
+
+#define g_exposure _320.reserved0
+vec3 tonemap_aces(vec3 value) {
+    // float A = 2.51;
+    // float B = 0.03;
+    // float C = 2.43;
+    // float D = 0.59;
+    // float E = 0.14;
+    // value *= 0.6;
+    // value = clamp((value * (A * value + B)) / (value * (C * value + D) + E), 0.0, 1.0);
+    value *= g_exposure;
+    value = log(value + vec3(1.0));
+    value = pow(value, vec3(0.45454545));  // gamma 2.2
+    return value;
+}
+float getY(vec3 rgba)
+{
+    return ((0.2125999927520751953125 * rgba.x) + (0.715200006961822509765625 * rgba.y)) + (0.072200000286102294921875 * rgba.z);
+}
+
+vec4 GetEdgeMap(float p[4][4], int i, int j)
+{
+    float g_0 = abs(((((p[0 + i][0 + j] + p[0 + i][1 + j]) + p[0 + i][2 + j]) - p[2 + i][0 + j]) - p[2 + i][1 + j]) - p[2 + i][2 + j]);
+    float g_45 = abs(((((p[1 + i][0 + j] + p[0 + i][0 + j]) + p[0 + i][1 + j]) - p[2 + i][1 + j]) - p[2 + i][2 + j]) - p[1 + i][2 + j]);
+    float g_90 = abs(((((p[0 + i][0 + j] + p[1 + i][0 + j]) + p[2 + i][0 + j]) - p[0 + i][2 + j]) - p[1 + i][2 + j]) - p[2 + i][2 + j]);
+    float g_135 = abs(((((p[1 + i][0 + j] + p[2 + i][0 + j]) + p[2 + i][1 + j]) - p[0 + i][1 + j]) - p[0 + i][2 + j]) - p[1 + i][2 + j]);
+    float g_0_90_max = max(g_0, g_90);
+    float g_0_90_min = min(g_0, g_90);
+    float g_45_135_max = max(g_45, g_135);
+    float g_45_135_min = min(g_45, g_135);
+    float e_0_90 = 0.0;
+    float e_45_135 = 0.0;
+    if ((g_0_90_max + g_45_135_max) == 0.0)
+    {
+        return vec4(0.0);
+    }
+    e_0_90 = min(g_0_90_max / (g_0_90_max + g_45_135_max), 1.0);
+    e_45_135 = 1.0 - e_0_90;
+    bool _325 = g_0_90_max > (g_0_90_min * _320.kDetectRatio);
+    bool _332;
+    if (_325)
+    {
+        _332 = g_0_90_max > _320.kDetectThres;
+    }
+    else
+    {
+        _332 = _325;
+    }
+    bool c_0_90 = _332 && (g_0_90_max > g_45_135_min);
+    bool _343 = g_45_135_max > (g_45_135_min * _320.kDetectRatio);
+    bool _350;
+    if (_343)
+    {
+        _350 = g_45_135_max > _320.kDetectThres;
+    }
+    else
+    {
+        _350 = _343;
+    }
+    bool c_45_135 = _350 && (g_45_135_max > g_0_90_min);
+    bool c_g_0_90 = g_0_90_max == g_0;
+    bool c_g_45_135 = g_45_135_max == g_45;
+    float f_e_0_90 = (c_0_90 && c_45_135) ? e_0_90 : 1.0;
+    float f_e_45_135 = (c_0_90 && c_45_135) ? e_45_135 : 1.0;
+    float weight_0 = (c_0_90 && c_g_0_90) ? f_e_0_90 : 0.0;
+    float weight_90 = (c_0_90 && (!c_g_0_90)) ? f_e_0_90 : 0.0;
+    float weight_45 = (c_45_135 && c_g_45_135) ? f_e_45_135 : 0.0;
+    float weight_135 = (c_45_135 && (!c_g_45_135)) ? f_e_45_135 : 0.0;
+    return vec4(weight_0, weight_90, weight_45, weight_135);
+}
+
+void LoadFilterBanksSh(int i0)
+{
+    int i = i0;
+    if (i < 128)
+    {
+        int phase = i >> 1;
+        int vIdx = i & 1;
+        f16vec4 v = f16vec4(texelFetch(SPIRV_Cross_Combinedcoef_scalersamplerLinearClamp, ivec2(vIdx, phase), 0));
+        int filterOffset = vIdx * 4;
+        shCoefScaler[phase][filterOffset + 0] = v.x;
+        shCoefScaler[phase][filterOffset + 1] = v.y;
+        if (vIdx == 0)
+        {
+            shCoefScaler[phase][2] = v.z;
+            shCoefScaler[phase][3] = v.w;
+        }
+        v = f16vec4(texelFetch(SPIRV_Cross_Combinedcoef_usmsamplerLinearClamp, ivec2(vIdx, phase), 0));
+        shCoefUSM[phase][filterOffset + 0] = v.x;
+        shCoefUSM[phase][filterOffset + 1] = v.y;
+        if (vIdx == 0)
+        {
+            shCoefUSM[phase][2] = v.z;
+            shCoefUSM[phase][3] = v.w;
+        }
+    }
+}
+
+vec4 GetInterpEdgeMap(vec4 edge[2][2], float phase_frac_x, float phase_frac_y)
+{
+    vec4 h0 = mix(edge[0][0], edge[0][1], vec4(phase_frac_x));
+    vec4 h1 = mix(edge[1][0], edge[1][1], vec4(phase_frac_x));
+    return mix(h0, h1, vec4(phase_frac_y));
+}
+
+float FilterNormal(float p[6][6], int phase_x_frac_int, int phase_y_frac_int)
+{
+    float h_acc = 0.0;
+    for (int j = 0; j < 6; j++)
+    {
+        float v_acc = 0.0;
+        for (int i = 0; i < 6; i++)
+        {
+            float indexable[6][6] = p;
+            v_acc += (indexable[i][j] * float(shCoefScaler[phase_y_frac_int][i]));
+        }
+        h_acc += (v_acc * float(shCoefScaler[phase_x_frac_int][j]));
+    }
+    return h_acc;
+}
+
+float CalcLTI(float p0, float p1, float p2, float p3, float p4, float p5, int phase_index)
+{
+    bool selector = phase_index <= 32;
+    float sel = selector ? p0 : p3;
+    float a_min = min(min(p1, p2), sel);
+    float a_max = max(max(p1, p2), sel);
+    sel = selector ? p2 : p5;
+    float b_min = min(min(p3, p4), sel);
+    float b_max = max(max(p3, p4), sel);
+    float a_cont = a_max - a_min;
+    float b_cont = b_max - b_min;
+    float cont_ratio = max(a_cont, b_cont) / (min(a_cont, b_cont) + _320.kEps);
+    return (1.0 - clamp((cont_ratio - _320.kMinContrastRatio) * _320.kRatioNorm, 0.0, 1.0)) * _320.kContrastBoost;
+}
+
+float EvalPoly6(float pxl[6], int phase_int)
+{
+    float y = 0.0;
+    for (int i = 0; i < 6; i++)
+    {
+        float indexable[6] = pxl;
+        y += (float(shCoefScaler[phase_int][i]) * indexable[i]);
+    }
+    float y_usm = 0.0;
+    for (int i_1 = 0; i_1 < 6; i_1++)
+    {
+        float indexable_1[6] = pxl;
+        y_usm += (float(shCoefUSM[phase_int][i_1]) * indexable_1[i_1]);
+    }
+    float y_scale = 1.0 - clamp(((y * 1.0) - _320.kSharpStartY) * _320.kSharpScaleY, 0.0, 1.0);
+    float y_sharpness = (y_scale * _320.kSharpStrengthScale) + _320.kSharpStrengthMin;
+    y_usm *= y_sharpness;
+    float y_sharpness_limit = ((y_scale * _320.kSharpLimitScale) + _320.kSharpLimitMin) * y;
+    y_usm = min(y_sharpness_limit, max(-y_sharpness_limit, y_usm));
+    float param = pxl[0];
+    float param_1 = pxl[1];
+    float param_2 = pxl[2];
+    float param_3 = pxl[3];
+    float param_4 = pxl[4];
+    float param_5 = pxl[5];
+    int param_6 = phase_int;
+    y_usm *= CalcLTI(param, param_1, param_2, param_3, param_4, param_5, param_6);
+    return y + y_usm;
+}
+
+float AddDirFilters(float p[6][6], float phase_x_frac, float phase_y_frac, int phase_x_frac_int, int phase_y_frac_int, vec4 w)
+{
+    float f = 0.0;
+    if (w.x > 0.0)
+    {
+        float interp0Deg[6];
+        for (int i = 0; i < 6; i++)
+        {
+            interp0Deg[i] = mix(p[i][2], p[i][3], phase_x_frac);
+        }
+        int param = phase_y_frac_int;
+        f += (EvalPoly6(interp0Deg, param) * w.x);
+    }
+    if (w.y > 0.0)
+    {
+        float interp90Deg[6];
+        for (int i_1 = 0; i_1 < 6; i_1++)
+        {
+            interp90Deg[i_1] = mix(p[2][i_1], p[3][i_1], phase_y_frac);
+        }
+        int param_1 = phase_x_frac_int;
+        f += (EvalPoly6(interp90Deg, param_1) * w.y);
+    }
+    if (w.z > 0.0)
+    {
+        float pphase_b45 = 0.5 + (0.5 * (phase_x_frac - phase_y_frac));
+        float temp_interp45Deg[7];
+        temp_interp45Deg[1] = mix(p[2][1], p[1][2], pphase_b45);
+        temp_interp45Deg[3] = mix(p[3][2], p[2][3], pphase_b45);
+        temp_interp45Deg[5] = mix(p[4][3], p[3][4], pphase_b45);
+        pphase_b45 -= 0.5;
+        float _877;
+        if (pphase_b45 >= 0.0)
+        {
+            _877 = p[0][2];
+        }
+        else
+        {
+            _877 = p[2][0];
+        }
+        float a = _877;
+        float _889;
+        if (pphase_b45 >= 0.0)
+        {
+            _889 = p[1][3];
+        }
+        else
+        {
+            _889 = p[3][1];
+        }
+        float b = _889;
+        float _901;
+        if (pphase_b45 >= 0.0)
+        {
+            _901 = p[2][4];
+        }
+        else
+        {
+            _901 = p[4][2];
+        }
+        float c = _901;
+        float _913;
+        if (pphase_b45 >= 0.0)
+        {
+            _913 = p[3][5];
+        }
+        else
+        {
+            _913 = p[5][3];
+        }
+        float d = _913;
+        temp_interp45Deg[0] = mix(p[1][1], a, abs(pphase_b45));
+        temp_interp45Deg[2] = mix(p[2][2], b, abs(pphase_b45));
+        temp_interp45Deg[4] = mix(p[3][3], c, abs(pphase_b45));
+        temp_interp45Deg[6] = mix(p[4][4], d, abs(pphase_b45));
+        float pphase_p45 = phase_x_frac + phase_y_frac;
+        float interp45Deg[6];
+        if (pphase_p45 >= 1.0)
+        {
+            for (int i_2 = 0; i_2 < 6; i_2++)
+            {
+                interp45Deg[i_2] = temp_interp45Deg[i_2 + 1];
+            }
+            pphase_p45 -= 1.0;
+        }
+        else
+        {
+            for (int i_3 = 0; i_3 < 6; i_3++)
+            {
+                interp45Deg[i_3] = temp_interp45Deg[i_3];
+            }
+        }
+        int param_2 = int(pphase_p45 * 64.0);
+        f += (EvalPoly6(interp45Deg, param_2) * w.z);
+    }
+    if (w.w > 0.0)
+    {
+        float pphase_b135 = 0.5 * (phase_x_frac + phase_y_frac);
+        float temp_interp135Deg[7];
+        temp_interp135Deg[1] = mix(p[3][1], p[4][2], pphase_b135);
+        temp_interp135Deg[3] = mix(p[2][2], p[3][3], pphase_b135);
+        temp_interp135Deg[5] = mix(p[1][3], p[2][4], pphase_b135);
+        pphase_b135 -= 0.5;
+        float _1042;
+        if (pphase_b135 >= 0.0)
+        {
+            _1042 = p[5][2];
+        }
+        else
+        {
+            _1042 = p[3][0];
+        }
+        float a_1 = _1042;
+        float _1054;
+        if (pphase_b135 >= 0.0)
+        {
+            _1054 = p[4][3];
+        }
+        else
+        {
+            _1054 = p[2][1];
+        }
+        float b_1 = _1054;
+        float _1066;
+        if (pphase_b135 >= 0.0)
+        {
+            _1066 = p[3][4];
+        }
+        else
+        {
+            _1066 = p[1][2];
+        }
+        float c_1 = _1066;
+        float _1078;
+        if (pphase_b135 >= 0.0)
+        {
+            _1078 = p[2][5];
+        }
+        else
+        {
+            _1078 = p[0][3];
+        }
+        float d_1 = _1078;
+        temp_interp135Deg[0] = mix(p[4][1], a_1, abs(pphase_b135));
+        temp_interp135Deg[2] = mix(p[3][2], b_1, abs(pphase_b135));
+        temp_interp135Deg[4] = mix(p[2][3], c_1, abs(pphase_b135));
+        temp_interp135Deg[6] = mix(p[1][4], d_1, abs(pphase_b135));
+        float pphase_p135 = 1.0 + (phase_x_frac - phase_y_frac);
+        float interp135Deg[6];
+        if (pphase_p135 >= 1.0)
+        {
+            for (int i_4 = 0; i_4 < 6; i_4++)
+            {
+                interp135Deg[i_4] = temp_interp135Deg[i_4 + 1];
+            }
+            pphase_p135 -= 1.0;
+        }
+        else
+        {
+            for (int i_5 = 0; i_5 < 6; i_5++)
+            {
+                interp135Deg[i_5] = temp_interp135Deg[i_5];
+            }
+        }
+        int param_3 = int(pphase_p135 * 64.0);
+        f += (EvalPoly6(interp135Deg, param_3) * w.w);
+    }
+    return f;
+}
+
+void NVScaler(uvec2 blockIdx, uint threadIdx)
+{
+    int dstBlockX = int(32u * blockIdx.x);
+    int dstBlockY = int(24u * blockIdx.y);
+    int srcBlockStartX = int(floor(((float(dstBlockX) + 0.5) * _320.kScaleX) - 0.5));
+    int srcBlockStartY = int(floor(((float(dstBlockY) + 0.5) * _320.kScaleY) - 0.5));
+    int srcBlockEndX = int(ceil(((float(dstBlockX + 32) + 0.5) * _320.kScaleX) - 0.5));
+    int srcBlockEndY = int(ceil(((float(dstBlockY + 24) + 0.5) * _320.kScaleY) - 0.5));
+    int numTilePixelsX = ((srcBlockEndX - srcBlockStartX) + 6) - 1;
+    int numTilePixelsY = ((srcBlockEndY - srcBlockStartY) + 6) - 1;
+    numTilePixelsX += (numTilePixelsX & 1);
+    numTilePixelsY += (numTilePixelsY & 1);
+    int numTilePixels = numTilePixelsX * numTilePixelsY;
+    int numEdgeMapPixelsX = (numTilePixelsX - 6) + 2;
+    int numEdgeMapPixelsY = (numTilePixelsY - 6) + 2;
+    int numEdgeMapPixels = numEdgeMapPixelsX * numEdgeMapPixelsY;
+    uint _1268 = threadIdx * 2u;
+    float p[2][2];
+    for (uint i = _1268; i < (uint(numTilePixels) >> uint(1)); i += 256u)
+    {
+        uint py = (i / uint(numTilePixelsX)) * 2u;
+        uint px = i % uint(numTilePixelsX);
+        float kShift = -1.5;
+        float tx = (float(uint(srcBlockStartX) + px) + kShift) * _320.kSrcNormX;
+        float ty = (float(uint(srcBlockStartY) + py) + kShift) * _320.kSrcNormY;
+        for (int j = 0; j < 2; j++)
+        {
+            for (int k = 0; k < 2; k++)
+            {
+                vec4 px_1 = textureLod(SPIRV_Cross_Combinedin_texturesamplerLinearClamp, vec2(tx + (float(k) * _320.kSrcNormX), ty + (float(j) * _320.kSrcNormY)), 0.0);
+                vec3 param = px_1.xyz;
+                p[j][k] = getY(param);
+            }
+        }
+        uint idx = (py * 38u) + px;
+        shPixelsY[idx] = float(float16_t(p[0][0]));
+        shPixelsY[idx + 1u] = float(float16_t(p[0][1]));
+        shPixelsY[idx + 38u] = float(float16_t(p[1][0]));
+        shPixelsY[(idx + 38u) + 1u] = float(float16_t(p[1][1]));
+    }
+    groupMemoryBarrier();
+    barrier();
+    uint _1415 = threadIdx * 2u;
+    float p_1[4][4];
+    for (uint i_1 = _1415; i_1 < (uint(numEdgeMapPixels) >> uint(1)); i_1 += 256u)
+    {
+        uint py_1 = (i_1 / uint(numEdgeMapPixelsX)) * 2u;
+        uint px_2 = i_1 % uint(numEdgeMapPixelsX);
+        uint edgeMapIdx = (py_1 * 34u) + px_2;
+        uint tileCornerIdx = (((py_1 + 1u) * 38u) + px_2) + 1u;
+        for (int j_1 = 0; j_1 < 4; j_1++)
+        {
+            for (int k_1 = 0; k_1 < 4; k_1++)
+            {
+                p_1[j_1][k_1] = shPixelsY[(tileCornerIdx + uint(j_1 * 38)) + uint(k_1)];
+            }
+        }
+        float param_1[4][4] = p_1;
+        int param_2 = 0;
+        int param_3 = 0;
+        shEdgeMap[edgeMapIdx] = f16vec4(GetEdgeMap(param_1, param_2, param_3));
+        float param_4[4][4] = p_1;
+        int param_5 = 0;
+        int param_6 = 1;
+        shEdgeMap[edgeMapIdx + 1u] = f16vec4(GetEdgeMap(param_4, param_5, param_6));
+        float param_7[4][4] = p_1;
+        int param_8 = 1;
+        int param_9 = 0;
+        shEdgeMap[edgeMapIdx + 34u] = f16vec4(GetEdgeMap(param_7, param_8, param_9));
+        float param_10[4][4] = p_1;
+        int param_11 = 1;
+        int param_12 = 1;
+        shEdgeMap[(edgeMapIdx + 34u) + 1u] = f16vec4(GetEdgeMap(param_10, param_11, param_12));
+    }
+    int param_13 = int(threadIdx);
+    LoadFilterBanksSh(param_13);
+    groupMemoryBarrier();
+    barrier();
+    ivec2 pos = ivec2(int(threadIdx % 32u), int(threadIdx / 32u));
+    int dstX = dstBlockX + pos.x;
+    float srcX = ((0.5 + float(dstX)) * _320.kScaleX) - 0.5;
+    int px_3 = int(floor(srcX) - float(srcBlockStartX));
+    float fx = srcX - floor(srcX);
+    int fx_int = int(fx * 64.0);
+    vec4 edge[2][2];
+    float p_2[6][6];
+    for (int k_2 = 0; k_2 < 6; k_2++)
+    {
+        int dstY = (dstBlockY + pos.y) + (k_2 * 4);
+        float srcY = ((0.5 + float(dstY)) * _320.kScaleY) - 0.5;
+        int py_2 = int(floor(srcY) - float(srcBlockStartY));
+        float fy = srcY - floor(srcY);
+        int fy_int = int(fy * 64.0);
+        int startEdgeMapIdx = (py_2 * 34) + px_3;
+        for (int i_2 = 0; i_2 < 2; i_2++)
+        {
+            for (int j_2 = 0; j_2 < 2; j_2++)
+            {
+                edge[i_2][j_2] = vec4(shEdgeMap[(startEdgeMapIdx + (i_2 * 34)) + j_2]);
+            }
+        }
+        float param_14 = fx;
+        float param_15 = fy;
+        vec4 w = GetInterpEdgeMap(edge, param_14, param_15) * 1.0;
+        int startTileIdx = (py_2 * 38) + px_3;
+        for (int i_3 = 0; i_3 < 6; i_3++)
+        {
+            for (int j_3 = 0; j_3 < 6; j_3++)
+            {
+                p_2[i_3][j_3] = shPixelsY[(startTileIdx + (i_3 * 38)) + j_3];
+            }
+        }
+        float baseWeight = (((1.0 - w.x) - w.y) - w.z) - w.w;
+        float opY = 0.0;
+        int param_16 = fx_int;
+        int param_17 = fy_int;
+        opY += (FilterNormal(p_2, param_16, param_17) * baseWeight);
+        float param_18[6][6] = p_2;
+        float param_19 = fx;
+        float param_20 = fy;
+        int param_21 = fx_int;
+        int param_22 = fy_int;
+        vec4 param_23 = w;
+        opY += AddDirFilters(param_18, param_19, param_20, param_21, param_22, param_23);
+        vec2 coord = vec2((srcX + 0.5) * _320.kSrcNormX, (srcY + 0.5) * _320.kSrcNormY);
+        vec2 dstCoord = vec2(float(dstX), float(dstY));
+        vec4 op = textureLod(SPIRV_Cross_Combinedin_texturesamplerLinearClamp, coord, 0.0);
+        vec3 param_24 = vec3(op.x, op.y, op.z);
+        float y = getY(param_24);
+        float corr = (opY * 1.0) - y;
+        op.x += corr;
+        op.y += corr;
+        op.z += corr;
+op.xyz = tonemap_aces(op.xyz);
+        imageStore(out_texture, ivec2(dstCoord), op);
+    }
+}
+
+void main()
+{
+    uvec2 param = gl_WorkGroupID.xy;
+    uint param_1 = gl_LocalInvocationID.x;
+    NVScaler(param, param_1);
+}
+

@@ -1,0 +1,32 @@
+{
+    "train": {
+        "epochs": 20000,
+        "save_every": 500,
+        "learning_rate": 1e-3
+    },
+    "render": {
+    },
+    "model": {
+        "name": "NR",
+        "ray": {
+            "name": "HashGrid",
+            "n_dims_to_encode": 3,
+            "n_levels": 4,
+            "n_features_per_level": 8,
+            "log2_hashmap_size": 19,
+            "base_resolution": 32,
+            "per_level_scale": 2.0,
+            "interpolation": "Linear",
+            "level_reduce": "Concat",
+            "n_hidden_dims": 256,
+            "n_hidden_layers": 4,
+            "output_activation": "None",
+            "use_tcnn": false
+        }
+    },
+    "sample": {
+        "n_points": 65536,
+        "n_dirs_per_point": 32,
+        "from_poses": true
+    }
+}

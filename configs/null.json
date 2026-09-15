@@ -1,0 +1,16 @@
+{
+    "train": {
+        "epochs": 20000,
+        "save_every": 500,
+        "learning_rate": 0.001
+    },
+    "render": {
+    },
+    "model": {
+        "name": "NULL"
+    },
+    "sample": {
+        "n_points": 65536,
+        "n_dirs_per_point": 32
+    }
+}

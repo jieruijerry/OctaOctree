@@ -1,0 +1,381 @@
+#version 430 core
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+// ----------------------------------------------------------------------------
+// uniforms
+// ----------------------------------------------------------------------------
+#define EPS 1e-6
+
+#define ME_USE_SAMPLER
+#ifdef ME_USE_SAMPLER
+layout(location = 0, binding = 0) uniform sampler2D img_input;
+layout(location = 4, binding = 2) uniform sampler2D img_input_depth;
+// albedo, depth, normal
+layout(location = 5, binding = 3) uniform sampler2D img_adn_input_albedo;
+layout(location = 6, binding = 4) uniform sampler2D img_adn_input_depth;
+layout(location = 7, binding = 5) uniform sampler2D img_adn_input_normal;
+#define IMAGE_SIZE(D_IMG) textureSize(D_IMG, 0).xy
+#define IMAGE_LOAD(D_IMG, D_TEX_COORD) texelFetch(D_IMG, D_TEX_COORD, 0).xyz
+// #define IMAGE_LOAD(D_IMG, D_TEX_COORD) textureLod(D_IMG, (D_TEX_COORD)/vec2(IMAGE_SIZE(D_IMG)), 0.0).xyz
+#else
+layout(rgba32f, location = 0, binding = 0) uniform image2D img_input;
+layout(r32f, location = 4, binding = 2) uniform image2D img_input_depth;
+// albedo, depth, normal
+layout(rgba32f, location = 5, binding = 3) uniform image2D img_adn_input_albedo;
+layout(r32f, location = 6, binding = 4) uniform image2D img_adn_input_depth;
+layout(rgba32f, location = 7, binding = 5) uniform image2D img_adn_input_normal;
+#define IMAGE_SIZE(D_IMG) imageSize(D_IMG).xy
+#define IMAGE_LOAD(D_IMG, D_TEX_COORD) imageLoad(D_IMG, D_TEX_COORD).xyz
+#endif
+
+layout(rgba32f, location = 1, binding = 1) uniform image2D img_output;
+layout(location = 2) uniform ivec4 v1;
+layout(location = 3) uniform vec4 v2;
+
+#define g_kernel_size v1.x
+#define g_kernel_type v1.y
+
+#define g_sigma v2.x
+#define g_v_sigma v2.y
+
+#define g_cuda_aa_kernel_size v1.x
+#define g_cuda_aa_depth_threshold v2.x
+#define g_cuda_aa_albedo_threshold v2.y
+#define g_cuda_aa_normal_threshold v2.z
+
+// ----------------------------------------------------------------------------
+// functions
+// ----------------------------------------------------------------------------
+float pow2(float x) {
+    return x * x;
+}
+float pow2(vec3 x) {
+    return dot(x, x);
+}
+
+bool outside(ivec2 coord, ivec2 image_size) {
+    return coord.x < 0 || coord.x >= image_size.x || coord.y < 0 || coord.y >= image_size.y;
+}
+
+vec3 average_filter(ivec2 texel_coord) {
+    const int kernel_size = g_kernel_size - 1;
+
+    vec3 value = vec3(0.0, 0.0, 0.0);
+    int count = 0;
+    const ivec2 image_size = IMAGE_SIZE(img_input);
+    for (int i = -kernel_size; i <= kernel_size; ++i) {
+        for (int j = -kernel_size; j <= kernel_size; ++j) {
+            ivec2 coord = texel_coord + ivec2(i, j);
+            if (outside(coord, image_size)) {
+                continue;
+            }
+            value += IMAGE_LOAD(img_input, coord);
+            ++count;
+        }
+    }
+    return value / float(count);
+}
+
+vec3 gaussian_filter(ivec2 texel_coord) {
+    // 2 sigma: 0.9544
+    const int kernel_size = int(ceil(g_sigma * 2.0));
+    const float div = max(2.0 * g_sigma * g_sigma, EPS);
+    const ivec2 image_size = IMAGE_SIZE(img_input);
+
+    vec3 value = vec3(0.0, 0.0, 0.0);
+    float weight_sum = 0.0;
+    for (int i = -kernel_size; i <= kernel_size; ++i) {
+        for (int j = -kernel_size; j <= kernel_size; ++j) {
+            ivec2 coord = texel_coord + ivec2(i, j);
+            if (outside(coord, image_size)) {
+                continue;
+            }
+            float weight = exp(-(float(i * i + j * j)) / div);
+            value += IMAGE_LOAD(img_input, coord) * weight;
+            weight_sum += weight;
+        }
+    }
+    return value / weight_sum;
+}
+
+vec3 median_filter(ivec2 texel_coord) {
+    const int kernel_size = g_kernel_size - 1;
+    const ivec2 image_size = IMAGE_SIZE(img_input);
+
+    vec3 value = vec3(0.0, 0.0, 0.0);
+    int count = 0;
+    // !!!!pack index into metric!!!!
+    const int IDX_MAX = 128;
+    const int METRIC_MIN = 1024;
+    float metric[81];
+    int idx = -1;
+    for (int i = -kernel_size; i <= kernel_size; ++i) {
+        for (int j = -kernel_size; j <= kernel_size; ++j) {
+            ivec2 coord = texel_coord + ivec2(i, j);
+            idx++;
+            if (outside(coord, image_size)) {
+                continue;
+            }
+            vec3 v = IMAGE_LOAD(img_input, coord);
+            // dot metric
+            float m = dot(v, v);
+            // know that idx < 81 < 128
+            metric[count] = floor(m * METRIC_MIN) * IDX_MAX + idx;
+            ++count;
+        }
+    }
+
+    // simple use the bubble sort
+    for (int i = count - 1; i > 0; --i) {
+        for (int j = 0; j < i; ++j) {
+            if (metric[j] > metric[j + 1]) {
+                float tmp = metric[j];
+                metric[j] = metric[j + 1];
+                metric[j + 1] = tmp;
+            }
+        }
+    }
+
+    int median_idx = int(metric[count / 2]) % IDX_MAX;
+    ivec2 median_coord = texel_coord + ivec2(median_idx / (kernel_size * 2 + 1) - kernel_size, median_idx % (kernel_size * 2 + 1) - kernel_size);
+    value = IMAGE_LOAD(img_input, median_coord);
+    return value;
+}
+
+vec3 bilateral_filter(ivec2 texel_coord) {
+    const int kernel_size = max(int(ceil(g_sigma * 2.0)), int(ceil(g_v_sigma * 2.0)));
+    const float div = max(2.0 * g_sigma * g_sigma, EPS);
+    const float v_div = max(2.0 * g_v_sigma * g_v_sigma, EPS);
+    const ivec2 image_size = IMAGE_SIZE(img_input);
+    vec3 val_center = IMAGE_LOAD(img_input, texel_coord);
+
+    vec3 value = vec3(0.0, 0.0, 0.0);
+    float weight_sum = 0.0;
+    for (int i = -kernel_size; i <= kernel_size; ++i) {
+        for (int j = -kernel_size; j <= kernel_size; ++j) {
+            ivec2 coord = texel_coord + ivec2(i, j);
+            if (outside(coord, image_size)) {
+                continue;
+            }
+            float weight = exp(-(float(i * i + j * j)) / div);
+            vec3 val = IMAGE_LOAD(img_input, coord);
+            vec3 val_diff = val - val_center;
+            float weight2 = exp(-(dot(val_diff, val_diff)) / v_div);
+            value += weight * weight2 * val;
+            weight_sum += weight;
+        }
+    }
+    return value / weight_sum;
+}
+
+vec3 anti_alising(ivec2 texel_coord) {
+    const int kernel_size = g_cuda_aa_kernel_size;
+    const float depth_threshold = g_cuda_aa_depth_threshold;
+    const float albedo_threshold = g_cuda_aa_albedo_threshold;
+    const float normal_threshold = g_cuda_aa_normal_threshold;
+    const ivec2 image_size = IMAGE_SIZE(img_input);
+
+    int num = 0;
+    float avg_depth = 0;
+    vec3 avg_albedo = vec3(0, 0, 0);
+    vec3 avg_normal = vec3(0, 0, 0);
+    float weight_sum = 0;
+    vec3 filtered = vec3(0, 0, 0);
+
+    for (int i = -kernel_size; i <= kernel_size; ++i) {
+        for (int j = -kernel_size; j <= kernel_size; ++j) {
+            ivec2 coord = texel_coord + ivec2(i, j);
+            if (outside(coord, image_size)) {
+                continue;
+            }
+            num++;
+            avg_depth += IMAGE_LOAD(img_adn_input_depth, coord).x;
+            avg_albedo += IMAGE_LOAD(img_adn_input_albedo, coord).xyz;
+            avg_normal += IMAGE_LOAD(img_adn_input_normal, coord).xyz;
+
+            // float weight = exp(-((x - i) * (x - i) + (y - j) * (y - j)) / 2);
+            float weight = 1.0f;
+            filtered += weight * IMAGE_LOAD(img_input, coord).xyz;
+            weight_sum += weight;
+        }
+    }
+
+    avg_depth /= num;
+    avg_albedo /= num;
+    avg_normal /= num;
+    filtered /= weight_sum;
+
+    float var_depth = 0;
+    vec3 var_albedo = vec3(0, 0, 0);
+    vec3 var_normal = vec3(0, 0, 0);
+    for (int i = -kernel_size; i <= kernel_size; ++i) {
+        for (int j = -kernel_size; j <= kernel_size; ++j) {
+            ivec2 coord = texel_coord + ivec2(i, j);
+            if (outside(coord, image_size)) {
+                continue;
+            }
+
+            float depth = IMAGE_LOAD(img_adn_input_depth, coord).x;
+            var_depth += pow2(depth - avg_depth);
+            vec3 albedo = IMAGE_LOAD(img_adn_input_albedo, coord).xyz;
+            var_albedo += pow2(albedo - avg_albedo);
+            vec3 normal = IMAGE_LOAD(img_adn_input_normal, coord).xyz;
+            var_normal += pow2(normal - avg_normal);
+        }
+    }
+    var_depth = var_depth / num;
+    var_albedo = var_albedo / num;
+    var_normal = var_normal / num;
+
+    vec3 value = IMAGE_LOAD(img_input, texel_coord).xyz;
+    if (var_depth > depth_threshold || var_albedo.x > albedo_threshold ||
+        var_albedo.y > albedo_threshold || var_albedo.z > albedo_threshold ||
+        var_normal.x > normal_threshold || var_normal.y > normal_threshold ||
+        var_normal.z > normal_threshold) {
+        value = filtered;
+    }
+
+    // vec3 value = IMAGE_LOAD(img_input, texel_coord).xyz;
+    // vec3 value = IMAGE_LOAD(img_adn_input_depth, texel_coord).xxx;
+    // vec3 value = IMAGE_LOAD(img_adn_input_albedo, texel_coord).xyz;
+    // vec3 value = IMAGE_LOAD(img_adn_input_normal, texel_coord).xyz;
+    return value;
+}
+
+////////////////////////////////////////////////////////////////
+// FXAA: https://github.com/mattdesl/glsl-fxaa/
+
+#ifndef FXAA_REDUCE_MIN
+#define FXAA_REDUCE_MIN (1.0 / 128.0)
+#endif
+#ifndef FXAA_REDUCE_MUL
+#define FXAA_REDUCE_MUL (1.0 / 8.0)
+#endif
+#ifndef FXAA_SPAN_MAX
+#define FXAA_SPAN_MAX 8.0
+#endif
+
+// attention: fragCoord.y is float
+vec4 fxaa(vec2 fragCoord, vec2 resolution,
+          vec2 v_rgbNW, vec2 v_rgbNE,
+          vec2 v_rgbSW, vec2 v_rgbSE,
+          vec2 v_rgbM) {
+#define tex img_input
+    vec4 color;
+    mediump vec2 inverseVP = vec2(1.0 / resolution.x, 1.0 / resolution.y);
+    vec3 rgbNW = texture2D(tex, v_rgbNW).xyz;
+    vec3 rgbNE = texture2D(tex, v_rgbNE).xyz;
+    vec3 rgbSW = texture2D(tex, v_rgbSW).xyz;
+    vec3 rgbSE = texture2D(tex, v_rgbSE).xyz;
+    vec4 texColor = texture2D(tex, v_rgbM);
+    vec3 rgbM = texColor.xyz;
+    vec3 luma = vec3(0.299, 0.587, 0.114);
+    float lumaNW = dot(rgbNW, luma);
+    float lumaNE = dot(rgbNE, luma);
+    float lumaSW = dot(rgbSW, luma);
+    float lumaSE = dot(rgbSE, luma);
+    float lumaM = dot(rgbM, luma);
+    float lumaMin = min(lumaM, min(min(lumaNW, lumaNE), min(lumaSW, lumaSE)));
+    float lumaMax = max(lumaM, max(max(lumaNW, lumaNE), max(lumaSW, lumaSE)));
+
+    mediump vec2 dir;
+    dir.x = -((lumaNW + lumaNE) - (lumaSW + lumaSE));
+    dir.y = ((lumaNW + lumaSW) - (lumaNE + lumaSE));
+
+    float dirReduce = max((lumaNW + lumaNE + lumaSW + lumaSE) *
+                              (0.25 * FXAA_REDUCE_MUL),
+                          FXAA_REDUCE_MIN);
+
+    float rcpDirMin = 1.0 / (min(abs(dir.x), abs(dir.y)) + dirReduce);
+    dir = min(vec2(FXAA_SPAN_MAX, FXAA_SPAN_MAX),
+              max(vec2(-FXAA_SPAN_MAX, -FXAA_SPAN_MAX),
+                  dir * rcpDirMin)) *
+          inverseVP;
+
+    vec3 rgbA = 0.5 * (texture2D(tex, fragCoord * inverseVP + dir * (1.0 / 3.0 - 0.5)).xyz +
+                       texture2D(tex, fragCoord * inverseVP + dir * (2.0 / 3.0 - 0.5)).xyz);
+    vec3 rgbB = rgbA * 0.5 + 0.25 * (texture2D(tex, fragCoord * inverseVP + dir * -0.5).xyz +
+                                     texture2D(tex, fragCoord * inverseVP + dir * 0.5).xyz);
+
+    float lumaB = dot(rgbB, luma);
+    if ((lumaB < lumaMin) || (lumaB > lumaMax))
+        color = vec4(rgbA, texColor.a);
+    else
+        color = vec4(rgbB, texColor.a);
+    return color;
+#undef tex
+}
+
+void fxaa_texcoords(vec2 fragCoord, vec2 resolution,
+                    out vec2 v_rgbNW, out vec2 v_rgbNE,
+                    out vec2 v_rgbSW, out vec2 v_rgbSE,
+                    out vec2 v_rgbM) {
+    vec2 inverseVP = 1.0 / resolution.xy;
+    v_rgbNW = (fragCoord + vec2(-1.0, -1.0)) * inverseVP;
+    v_rgbNE = (fragCoord + vec2(1.0, -1.0)) * inverseVP;
+    v_rgbSW = (fragCoord + vec2(-1.0, 1.0)) * inverseVP;
+    v_rgbSE = (fragCoord + vec2(1.0, 1.0)) * inverseVP;
+    v_rgbM = vec2(fragCoord * inverseVP);
+}
+
+vec3 fxaa_wrap(vec2 texel_coord, vec2 resolution) {
+    vec2 v_rgbNW;
+    vec2 v_rgbNE;
+    vec2 v_rgbSW;
+    vec2 v_rgbSE;
+    vec2 v_rgbM;
+
+    // compute the texture coords
+    fxaa_texcoords(texel_coord, resolution, v_rgbNW, v_rgbNE, v_rgbSW, v_rgbSE, v_rgbM);
+
+    // compute FXAA
+    return fxaa(texel_coord, resolution, v_rgbNW, v_rgbNE, v_rgbSW, v_rgbSE, v_rgbM).xyz;
+}
+////////////////////////////////////////////////////////////////
+
+void main() {
+    ivec2 texel_coord = ivec2(gl_GlobalInvocationID.xy);
+    vec3 value = vec3(0.0, 0.0, 0.0);
+    // Kernel
+    {
+        // Average
+        if (g_kernel_type == 1) {
+            value = average_filter(texel_coord);
+        }
+        // Gaussian
+        else if (g_kernel_type == 2) {
+            value = gaussian_filter(texel_coord);
+        }
+        // Median
+        else if (g_kernel_type == 3) {
+            value = median_filter(texel_coord);
+        }
+        // Bilateral
+        else if (g_kernel_type == 5) {
+            value = bilateral_filter(texel_coord);
+        }
+        // Depth
+        else if (g_kernel_type == 6) {
+            value = IMAGE_LOAD(img_input_depth, texel_coord).xxx;
+        }
+        // CUDA AA
+        else if (g_kernel_type == 7) {
+            value = anti_alising(texel_coord);
+        }
+        // FXAA
+        else if (g_kernel_type == 8) {
+            vec2 resolution = vec2(IMAGE_SIZE(img_input));
+            // vertex/fragment shader, center of the pixel is at (x+0.5, y+0.5)
+            vec2 uv = vec2((texel_coord + vec2(0.5, 0.5)) / resolution);
+            vec2 frag_coord = uv * resolution;
+            value = fxaa_wrap(frag_coord, resolution);
+        }
+        // None
+        else {
+            // g_kernel_type == 0
+            value = IMAGE_LOAD(img_input, texel_coord);
+        }
+    }
+    imageStore(img_output, texel_coord, vec4(value, 1.0));
+}

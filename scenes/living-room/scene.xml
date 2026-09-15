@@ -1,0 +1,282 @@
+<scene version="3.0.0">
+	<default name="integrator" value="path" />
+	<default name="spp" value="64" />
+	<default name="resy" value="720" />
+	<default name="resx" value="1280" />
+	<default name="max_depth" value="65" />
+	<integrator type="$integrator">
+		<integer name="max_depth" value="$max_depth" />
+	</integrator>
+	<sensor type="perspective">
+		<float name="fov" value="90" />
+		<transform name="to_world">
+			<matrix value="0.264209 0.071763 -0.961792 5.10518 -2.81996e-008 0.997228 0.074407 0.731065 0.964465 -0.019659 0.263476 -2.31789 0 0 0 1" />
+		</transform>
+		<sampler type="independent">
+			<integer name="sample_count" value="$spp" />
+		</sampler>
+		<film type="hdrfilm">
+			<integer name="width" value="$resx" />
+			<integer name="height" value="$resy" />
+			<string name="file_format" value="openexr" />
+			<string name="pixel_format" value="rgb" />
+			<rfilter type="box" />
+		</film>
+	</sensor>
+	<bsdf type="diffuse" id="DirtBSDF">
+		<rgb name="reflectance" value="0.098504, 0.045968, 0.035887" />
+	</bsdf>
+	<bsdf type="roughplastic" id="FloorBSDF">
+		<float name="alpha" value="0.15" />
+		<string name="distribution" value="ggx" />
+		<float name="int_ior" value="1.5" />
+		<float name="ext_ior" value="1" />
+		<boolean name="nonlinear" value="true" />
+		<texture name="diffuse_reflectance" type="bitmap">
+			<string name="filename" value="textures/wood.jpg" />
+			<string name="filter_type" value="bilinear" />
+		</texture>
+	</bsdf>
+	<bsdf type="roughplastic" id="TableWoodBSDF">
+		<float name="alpha" value="0.05" />
+		<string name="distribution" value="ggx" />
+		<float name="int_ior" value="1.5" />
+		<float name="ext_ior" value="1" />
+		<boolean name="nonlinear" value="true" />
+		<texture name="diffuse_reflectance" type="bitmap">
+			<string name="filename" value="textures/wood5.jpg" />
+			<string name="filter_type" value="bilinear" />
+		</texture>
+	</bsdf>
+	<bsdf type="diffuse" id="SofaBSDF">
+		<rgb name="reflectance" value="1, 1, 1" />
+	</bsdf>
+	<bsdf type="diffuse" id="SofaLegsBSDF">
+		<rgb name="reflectance" value="0.1, 0.1, 0.1" />
+	</bsdf>
+	<bsdf type="diffuse" id="WallsBSDF">
+		<rgb name="reflectance" value="0.1, 0.1, 0.1" />
+	</bsdf>
+	<bsdf type="roughplastic" id="PanelingBSDF">
+		<float name="alpha" value="0.2" />
+		<string name="distribution" value="ggx" />
+		<float name="int_ior" value="1.5" />
+		<float name="ext_ior" value="1" />
+		<boolean name="nonlinear" value="true" />
+		<rgb name="diffuse_reflectance" value="0.8, 0.8, 0.8" />
+	</bsdf>
+	<bsdf type="conductor" id="MirrorBSDF">
+		<string name="material" value="none" />
+	</bsdf>
+	<bsdf type="roughconductor" id="BrushedStainlessSteelBSDF">
+		<float name="alpha" value="0.02" />
+		<string name="distribution" value="ggx" />
+		<rgb name="specular_reflectance" value="0.578596, 0.578596, 0.578596" />
+		<rgb name="eta" value="1.65746, 0.880369, 0.521229" />
+		<rgb name="k" value="9.22387, 6.26952, 4.837" />
+	</bsdf>
+	<bsdf type="diffuse" id="MattePaintBSDF">
+		<rgb name="reflectance" value="0.578596, 0.578596, 0.578596" />
+	</bsdf>
+	<bsdf type="diffuse" id="PaintingBSDF">
+		<texture name="reflectance" type="bitmap">
+			<string name="filename" value="textures/picture8.jpg" />
+			<string name="filter_type" value="bilinear" />
+		</texture>
+	</bsdf>
+	<bsdf type="diffuse" id="PaintingBackBSDF">
+		<rgb name="reflectance" value="0.26, 0.25, 0.14" />
+	</bsdf>
+	<!-- <bsdf type="dielectric" id="GlassBSDF">
+		<float name="int_ior" value="1.5" />
+		<float name="ext_ior" value="1" />
+	</bsdf> -->
+	<bsdf type="roughplastic" id="GlassBSDF">
+		<float name="alpha" value="0.02" />
+		<string name="distribution" value="ggx" />
+		<float name="int_ior" value="1.5" />
+		<float name="ext_ior" value="1" />
+		<boolean name="nonlinear" value="true" />
+		<rgb name="diffuse_reflectance" value="0.02, 0.12, 0.06" />
+	</bsdf>
+	<bsdf type="diffuse" id="PlantPotBSDF">
+		<rgb name="reflectance" value="0.1, 0.1, 0.1" />
+	</bsdf>
+	<bsdf type="roughplastic" id="FireplaceGlassBSDF">
+		<float name="alpha" value="0.001" />
+		<string name="distribution" value="ggx" />
+		<float name="int_ior" value="1.5" />
+		<float name="ext_ior" value="1" />
+		<boolean name="nonlinear" value="true" />
+		<rgb name="diffuse_reflectance" value="0.01, 0.01, 0.01" />
+	</bsdf>
+	<bsdf type="diffuse" id="TransluscentBSDF">
+		<rgb name="reflectance" value="0.9, 0.9, 0.9" />
+	</bsdf>
+	<bsdf type="mask" id="LeavesBSDF">
+		<texture name="opacity" type="bitmap">
+			<string name="filename" value="textures/leaf_mask.png" />
+			<string name="filter_type" value="bilinear" />
+		</texture>
+		<bsdf type="twosided">
+			<bsdf type="diffuse">
+				<texture name="reflectance" type="bitmap">
+					<string name="filename" value="textures/leaf.png" />
+					<string name="filter_type" value="bilinear" />
+				</texture>
+			</bsdf>
+		</bsdf>
+	</bsdf>
+	<bsdf type="diffuse" id="BranchesBSDF">
+		<rgb name="reflectance" value="0.160444, 0.0824142, 0.0199178" />
+	</bsdf>
+	<bsdf type="diffuse" id="BottleCapBSDF">
+		<rgb name="reflectance" value="0.456263, 0, 0" />
+	</bsdf>
+	<shape type="ply" id="Paneling_0001">
+		<string name="filename" value="merged_meshes/Paneling.ply" />
+		<transform name="to_world">
+			<matrix value="1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1" />
+		</transform>
+		<ref id="PanelingBSDF" />
+	</shape>
+	<shape type="ply" id="Transluscent_0001">
+		<string name="filename" value="merged_meshes/Transluscent.ply" />
+		<transform name="to_world">
+			<matrix value="1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1" />
+		</transform>
+		<boolean name="face_normals" value="true" />
+		<ref id="TransluscentBSDF" />
+	</shape>
+	<shape type="ply" id="MattePaint_0001">
+		<string name="filename" value="merged_meshes/MattePaint.ply" />
+		<transform name="to_world">
+			<matrix value="1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1" />
+		</transform>
+		<boolean name="face_normals" value="true" />
+		<ref id="MattePaintBSDF" />
+	</shape>
+	<shape type="ply" id="BrushedStainlessSteel_0001">
+		<string name="filename" value="merged_meshes/BrushedStainlessSteel.ply" />
+		<transform name="to_world">
+			<matrix value="1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1" />
+		</transform>
+		<ref id="BrushedStainlessSteelBSDF" />
+	</shape>
+	<shape type="ply" id="PlantPot_0001">
+		<string name="filename" value="merged_meshes/PlantPot.ply" />
+		<transform name="to_world">
+			<matrix value="1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1" />
+		</transform>
+		<ref id="PlantPotBSDF" />
+	</shape>
+	<shape type="ply" id="Dirt_0001">
+		<string name="filename" value="merged_meshes/Dirt.ply" />
+		<transform name="to_world">
+			<matrix value="1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1" />
+		</transform>
+		<ref id="DirtBSDF" />
+	</shape>
+	<shape type="ply" id="Branches_0001">
+		<string name="filename" value="merged_meshes/Branches.ply" />
+		<transform name="to_world">
+			<matrix value="1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1" />
+		</transform>
+		<ref id="BranchesBSDF" />
+	</shape>
+	<shape type="ply" id="Leaves_0001">
+		<string name="filename" value="merged_meshes/Leaves.ply" />
+		<transform name="to_world">
+			<matrix value="1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1" />
+		</transform>
+		<ref id="LeavesBSDF" />
+	</shape>
+	<shape type="ply" id="Walls_0001">
+		<string name="filename" value="merged_meshes/Walls.ply" />
+		<transform name="to_world">
+			<matrix value="1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1" />
+		</transform>
+		<ref id="WallsBSDF" />
+	</shape>
+	<shape type="ply" id="FireplaceGlass">
+		<string name="filename" value="merged_meshes/FireplaceGlass.ply" />
+		<transform name="to_world">
+			<matrix value="1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1" />
+		</transform>
+		<boolean name="face_normals" value="true" />
+		<ref id="FireplaceGlassBSDF" />
+	</shape>
+	<shape type="ply" id="Mirror">
+		<string name="filename" value="merged_meshes/Mirror.ply" />
+		<transform name="to_world">
+			<matrix value="1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1" />
+		</transform>
+		<boolean name="face_normals" value="true" />
+		<ref id="MirrorBSDF" />
+	</shape>
+	<shape type="ply" id="Floor">
+		<string name="filename" value="merged_meshes/Floor.ply" />
+		<transform name="to_world">
+			<matrix value="1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1" />
+		</transform>
+		<ref id="FloorBSDF" />
+	</shape>
+	<shape type="ply" id="Sofa_0001">
+		<string name="filename" value="merged_meshes/Sofa.ply" />
+		<transform name="to_world">
+			<matrix value="1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1" />
+		</transform>
+		<ref id="SofaBSDF" />
+	</shape>
+	<shape type="ply" id="SofaLegs">
+		<string name="filename" value="merged_meshes/SofaLegs.ply" />
+		<transform name="to_world">
+			<matrix value="1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1" />
+		</transform>
+		<ref id="SofaLegsBSDF" />
+	</shape>
+	<shape type="ply" id="Painting">
+		<string name="filename" value="merged_meshes/Painting.ply" />
+		<transform name="to_world">
+			<matrix value="1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1" />
+		</transform>
+		<boolean name="face_normals" value="true" />
+		<ref id="PaintingBSDF" />
+	</shape>
+	<shape type="ply" id="PaintingBack">
+		<string name="filename" value="merged_meshes/PaintingBack.ply" />
+		<transform name="to_world">
+			<matrix value="1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1" />
+		</transform>
+		<boolean name="face_normals" value="true" />
+		<ref id="PaintingBackBSDF" />
+	</shape>
+	<shape type="ply" id="TableWood_0001">
+		<string name="filename" value="merged_meshes/TableWood.ply" />
+		<transform name="to_world">
+			<matrix value="1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1" />
+		</transform>
+		<boolean name="face_normals" value="true" />
+		<ref id="TableWoodBSDF" />
+	</shape>
+	<shape type="ply" id="Glass_0001">
+		<string name="filename" value="merged_meshes/Glass.ply" />
+		<transform name="to_world">
+			<matrix value="1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1" />
+		</transform>
+		<ref id="GlassBSDF" />
+	</shape>
+	<shape type="ply" id="BottleCap">
+		<string name="filename" value="merged_meshes/BottleCap.ply" />
+		<transform name="to_world">
+			<matrix value="1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1" />
+		</transform>
+		<ref id="BottleCapBSDF" />
+	</shape>
+	<emitter type="envmap">
+		<transform name="to_world">
+			<matrix value="-4.37114e-008 0 1 0 0 1 0 0 -1 0 -4.37114e-008 0 0 0 0 1" />
+		</transform>
+		<string name="filename" value="textures/Sky 19.exr" />
+	</emitter>
+</scene>
