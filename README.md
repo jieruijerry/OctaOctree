@@ -44,11 +44,11 @@ Build our customized Mitsuba 3.5.2 and place it next to this repository:
 ```
 
 1. Clone [mitsuba3-old](https://github.com/jieruijerry/mitsuba3-old) into `../official-submodules/`.
-2. Check out the **`v3.5.2`** branch. The build must use this branch, not `master` or another tag:
+2. Check out the **`v3.5.2` branch** (`origin/v3.5.2`), not the same-named tag. A plain `git checkout v3.5.2` can land on the official release tag instead of our patched branch:
 
 ```bash
 cd ../official-submodules/mitsuba3-old
-git checkout v3.5.2
+git checkout -b v3.5.2 origin/v3.5.2
 ```
 
 3. Compile following the [Mitsuba 3.5.2 compiling guide](https://mitsuba.readthedocs.io/en/v3.5.2/src/developer_guide/compiling.html).
