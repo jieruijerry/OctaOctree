@@ -26,7 +26,7 @@ Default settings match the paper: 8 OctaOctree levels (spatial 2^2–2^9, comple
 ### Python environment
 
 ```bash
-conda create -n mi3 python=3.9
+conda create -n mi3 python=3.12
 conda activate mi3
 pip install -r requirements.txt
 pip install git+https://github.com/NVlabs/tiny-cuda-nn/#subdirectory=bindings/torch
@@ -43,9 +43,16 @@ Build our customized Mitsuba 3.5.2 and place it next to this repository:
 ../official-submodules/mitsuba3-old
 ```
 
-1. Clone [mitsuba3-old](https://github.com/Jerry18231174/mitsuba3-old) into `../official-submodules/`.
-2. Compile following the [Mitsuba 3.5.2 compiling guide](https://mitsuba.readthedocs.io/en/v3.5.2/src/developer_guide/compiling.html).
-3. Before training or rendering, source the Mitsuba environment:
+1. Clone [mitsuba3-old](https://github.com/jieruijerry/mitsuba3-old) into `../official-submodules/`.
+2. Check out the **`v3.5.2`** branch. The build must use this branch, not `master` or another tag:
+
+```bash
+cd ../official-submodules/mitsuba3-old
+git checkout v3.5.2
+```
+
+3. Compile following the [Mitsuba 3.5.2 compiling guide](https://mitsuba.readthedocs.io/en/v3.5.2/src/developer_guide/compiling.html).
+4. Before training or rendering, source the Mitsuba environment:
 
 ```bash
 source scripts/active_mitsuba.sh
